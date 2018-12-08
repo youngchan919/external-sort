@@ -176,13 +176,13 @@ class ExternalSort(object):
 
 def parse_memory(string):
     if string[-1].lower() == 'k':
-        return int(string[:-1]) * 1024
+        return int(string[:-1]) * 1024 * 0.4
     elif string[-1].lower() == 'm':
-        return int(string[:-1]) * 1024 * 1024
+        return int(string[:-1]) * 1024 * 1024 * 0.4
     elif string[-1].lower() == 'g':
-        return int(string[:-1]) * 1024 * 1024 * 1024
+        return int(string[:-1]) * 1024 * 1024 * 1024 * 0.4
     else:
-        return int(string)
+        return int(string) * 0.4
 
 
 def main():
@@ -190,7 +190,7 @@ def main():
     parser.add_argument('-m',
                         '--mem',
                         help='amount of memory to use for sorting [100M]',
-                        default='100M')
+                        default='500M')
     parser.add_argument('-l',
                         '--lineunit',
                         help='number of lines processed as a unit, [4] for FQ file, 1 for regular file',
