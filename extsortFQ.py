@@ -1,37 +1,41 @@
-#!/usr/bin/env python
+# coding=utf-8
+# !/usr/bin/env python
 
 #
-# Sort large text files in a minimum amount of memory
+# Sort large FASTQ files in a minimum amount of memory
+# Forked from https://github.com/spiralout/external-sort
 #
+
 import os
-import sys
 import argparse
+
 
 class FileSplitter(object):
     BLOCK_FILENAME_FORMAT = 'block_{0}.dat'
 
-    def __init__(self, filename):
+    def __init__(self, filename, line_unit):
         self.filename = filename
+        self.line_unit = line_unit
         self.block_filenames = []
 
     def write_block(self, data, block_number):
         filename = self.BLOCK_FILENAME_FORMAT.format(block_number)
-        file = open(filename, 'w')
-        file.write(data)
-        file.close()
+        block = open(filename, 'w')
+        block.write(data)
+        block.close()
         self.block_filenames.append(filename)
 
     def get_block_filenames(self):
         return self.block_filenames
 
     def split(self, block_size, sort_key=None):
-        file = open(self.filename, 'r')
+        block = open(self.filename, 'r')
         i = 0
 
         while True:
-            lines = file.readlines(block_size)
+            lines = self.read_src(block, block_size)
 
-            if lines == []:
+            if not lines:
                 break
 
             if sort_key is None:
@@ -42,38 +46,59 @@ class FileSplitter(object):
             self.write_block(''.join(lines), i)
             i += 1
 
+    def read_src(self, srcfile, block_size):
+        i = 0
+        lines = []
+
+        while i < block_size:
+            read = ''
+
+            for j in range(self.line_unit):
+                read += srcfile.readline()
+            if not read:
+                break
+
+            lines.append(read)
+            i += len(read)
+
+        return lines
+
     def cleanup(self):
         map(lambda f: os.remove(f), self.block_filenames)
 
 
 class NWayMerge(object):
-    def select(self, choices):
+    @staticmethod
+    def select(choices):
         min_index = -1
         min_str = None
 
-        for i in range(len(choices)):
+        for i in choices:
             if min_str is None or choices[i] < min_str:
                 min_index = i
+                min_str = choices[i]
 
         return min_index
 
 
 class FilesArray(object):
-    def __init__(self, files):
+    def __init__(self, files, line_unit):
         self.files = files
+        self.line_unit = line_unit
         self.empty = set()
         self.num_buffers = len(files)
-        self.buffers = {i: None for i in range(self.num_buffers)}
+        self.buffers = {i: '' for i in range(self.num_buffers)}
 
     def get_dict(self):
         return {i: self.buffers[i] for i in range(self.num_buffers) if i not in self.empty}
 
     def refresh(self):
         for i in range(self.num_buffers):
-            if self.buffers[i] is None and i not in self.empty:
-                self.buffers[i] = self.files[i].readline()
+            if not self.buffers[i] and i not in self.empty:
+                for j in range(self.line_unit):
+                    self.buffers[i] += self.files[i].readline()
 
-                if self.buffers[i] == '':
+                if not self.buffers[i]:
                     self.empty.add(i)
 
         if len(self.empty) == self.num_buffers:
@@ -83,7 +108,7 @@ class FilesArray(object):
 
     def unshift(self, index):
         value = self.buffers[index]
-        self.buffers[index] = None
+        self.buffers[index] = ''
 
         return value
 
@@ -92,15 +117,16 @@ class FileMerger(object):
     def __init__(self, merge_strategy):
         self.merge_strategy = merge_strategy
 
-    def merge(self, filenames, outfilename, buffer_size):
+    def merge(self, filenames, outfilename, buffer_size, line_unit):
         outfile = open(outfilename, 'w', buffer_size)
-        buffers = FilesArray(self.get_file_handles(filenames, buffer_size))
+        buffers = FilesArray(self.get_file_handles(filenames, buffer_size), line_unit)
 
         while buffers.refresh():
             min_index = self.merge_strategy.select(buffers.get_dict())
             outfile.write(buffers.unshift(min_index))
 
-    def get_file_handles(self, filenames, buffer_size):
+    @staticmethod
+    def get_file_handles(filenames, buffer_size):
         files = {}
 
         for i in range(len(filenames)):
@@ -109,24 +135,24 @@ class FileMerger(object):
         return files
 
 
-
 class ExternalSort(object):
-    def __init__(self, block_size):
+    def __init__(self, block_size, line_unit):
         self.block_size = block_size
+        self.line_unit = line_unit
 
     def sort(self, filename, sort_key=None):
-        num_blocks = self.get_number_blocks(filename, self.block_size)
-        splitter = FileSplitter(filename)
+        num_blocks = self.get_number_blocks(filename)
+        splitter = FileSplitter(filename, self.line_unit)
         splitter.split(self.block_size, sort_key)
 
         merger = FileMerger(NWayMerge())
         buffer_size = self.block_size / (num_blocks + 1)
-        merger.merge(splitter.get_block_filenames(), filename + '.out', buffer_size)
+        merger.merge(splitter.get_block_filenames(), filename + '.out', buffer_size, self.line_unit)
 
         splitter.cleanup()
 
-    def get_number_blocks(self, filename, block_size):
-        return (os.stat(filename).st_size / block_size) + 1
+    def get_number_blocks(self, filename):
+        return os.stat(filename).st_size / self.block_size
 
 
 def parse_memory(string):
@@ -140,20 +166,23 @@ def parse_memory(string):
         return int(string)
 
 
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('-m',
                         '--mem',
-                        help='amount of memory to use for sorting',
+                        help='amount of memory to use for sorting [100M]',
                         default='100M')
+    parser.add_argument('-l',
+                        '--lineunit',
+                        help='number of lines processed as a unit [4]',
+                        default='4')
     parser.add_argument('filename',
                         metavar='<filename>',
                         nargs=1,
                         help='name of file to sort')
     args = parser.parse_args()
 
-    sorter = ExternalSort(parse_memory(args.mem))
+    sorter = ExternalSort(parse_memory(args.mem), int(args.lineunit))
     sorter.sort(args.filename[0])
 
 
