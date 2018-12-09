@@ -165,7 +165,7 @@ class ExternalSort(object):
         splitter.split(self.block_size, sort_key)
 
         merger = FileMerger(NWayMerge())
-        buffer_size = self.block_size / (num_blocks + 1)
+        buffer_size = self.block_size / ((num_blocks + 1) * 0.4)
         merger.merge(splitter.get_block_filenames(), filename + '.out', buffer_size, self.line_unit)
 
         splitter.cleanup()
