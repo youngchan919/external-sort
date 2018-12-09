@@ -165,7 +165,7 @@ class ExternalSort(object):
         splitter.split(self.block_size, sort_key)
 
         merger = FileMerger(NWayMerge())
-        buffer_size = self.block_size / ((num_blocks + 1) * 0.4)
+        buffer_size = int(self.block_size / (num_blocks + 1) / 0.4)
         merger.merge(splitter.get_block_filenames(), filename + '.out', buffer_size, self.line_unit)
 
         splitter.cleanup()
@@ -197,12 +197,14 @@ def main():
                         default='4')
     parser.add_argument('filename',
                         metavar='<filename>',
-                        nargs=1,
+                        nargs='+',
                         help='name of file to sort')
     args = parser.parse_args()
 
     sorter = ExternalSort(parse_memory(args.mem), int(args.lineunit))
-    sorter.sort(args.filename[0])
+    
+    for i in args.filename:
+        sorter.sort(i)
 
 
 if __name__ == '__main__':
